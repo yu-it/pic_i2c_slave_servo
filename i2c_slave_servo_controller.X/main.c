@@ -4,12 +4,10 @@
  *
  * Created on 2017/04/01, 11:25
  */
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <xc.h>
 #include <pic16F1508.h>
-
 
 /***** コンフィギュレーションの設定 *********/
 /*
@@ -21,7 +19,7 @@ __CONFIG(WRT_OFF & STVREN_OFF & LVP_OFF);
 #pragma config FOSC = INTOSC    // Oscillator Selection Bits (INTOSC oscillator: I/O function on CLKIN pin)
 #pragma config WDTE = OFF       // Watchdog Timer Enable (WDT disabled)
 #pragma config PWRTE = ON       // Power-up Timer Enable (PWRT enabled)
-#pragma config MCLRE = ON       // MCLR Pin Function Select (MCLR/VPP pin function is MCLR)
+#pragma config MCLRE = OFF       // MCLR Pin Function Select (MCLR/VPP pin function is MCLR)
 #pragma config CP = OFF         // Flash Program Memory Code Protection (Program memory code protection is disabled)
 #pragma config BOREN = ON       // Brown-out Reset Enable (Brown-out Reset enabled)
 #pragma config CLKOUTEN = OFF   // Clock Out Enable (CLKOUT function is disabled. I/O or oscillator function on the CLKOUT pin)
@@ -36,7 +34,7 @@ __CONFIG(WRT_OFF & STVREN_OFF & LVP_OFF);
 #pragma config LPBOR = OFF      // Low-Power Brown Out Reset (Low-Power BOR is disabled) zzz
 
 /** グローバル定数変数定義 **/
-unsigned int HWidth, VWidth, DFlag, Mode, i, testflg;
+unsigned int HWidth, VWidth, DFlag, Mode, i;
 unsigned int Interval, AutoFlag, AutoInt, Level, NewLvl;
 const unsigned int MAX = 1000;
 const unsigned int MIN = 250;
@@ -49,19 +47,24 @@ void Init();
 /*
  * 
  */
+
 void Init() {
     OSCCON = 0x73;                      // 内蔵8MHz
     /** 入出力ポートの設定 ***/
-    ANSELA = 0x0;                      // AN5,AN6,AN7のみアナログ
+    ANSELA = 0x00;
     ANSELB = 0x00;                      // デジタル    
     TRISA = 0;                       // RA0,1,3,4,5のみ入力設定
     TRISAbits.TRISA0 = 1;
+    TRISAbits.TRISA1 = 1;
+    TRISAbits.TRISA2 = 1;
+    TRISAbits.TRISA3 = 1;
+    TRISAbits.TRISA4 = 1;
+    TRISAbits.TRISA5 = 1;
     TRISB = 0;                       // すべて出力
     //TRISC = 0x2E;                       // RC1,2,3,5のみ入力
     TRISC = 0;                       // RC1,2,3,5のみ入力
     /** プルアップイネーブル **/
-    WPUA = 0b00000000;                        // RA4,5 pullup   
-    WPUAbits.WPUA = 1;                        // RA4,5 pullup   
+    WPUA = 0b0;
     /* タイマ0の設定　20.04msec周期 */
     OPTION_REG = 0x07;                  // Int. 1/256, プルアップ有効化
     TMR0 = 99;                          // 20msec         
@@ -92,9 +95,8 @@ void Init() {
     //TMR2IE = 1;                         // タイマ0割り込み許可
     PEIE = 1;                           // 周辺許可
     GIE = 1;                            // グローバル許可
-
+//    setUpI2CSlave();
 }
-
 int main(int argc, char** argv) {
 
     Init();
@@ -102,86 +104,75 @@ int main(int argc, char** argv) {
     int speed = 500;
     current_1 = 0;
     current_4 = 0;
-    PORTBbits.RB4 = 1;
+    int dir_1 = 0;
+    int dir_4 = 0;
     PORTBbits.RB5 = 1;
     current_1 = (MAX + MIN) / 2;
+    current_4 = (MAX + MIN) / 2;
     PWM1DCH = current_1 >> 2;                  // PWM1
     PWM1DCL = current_1 << 6;
-    PWM4DCH = current_1 >> 2;                  // PWM4
-    PWM4DCL = current_1 << 6;
+    PWM4DCH = current_4 >> 2;                  // PWM4
+    PWM4DCL = current_4 << 6;
     while (1) {
-        if (RA0 == 1) {
-            if (current_1 > MIN) {
-                if (count > speed) {
-                    current_1 = current_1 - 1;
-                    PWM1DCH = current_1 >> 2;                  // PWM1
-                    PWM1DCL = current_1 << 6;
-                    PWM4DCH = current_1 >> 2;                  // PWM4
-                    PWM4DCL = current_1 << 6;
-                    PORTBbits.RB5 = 1;
-                    count = 0;
-                } else {
-                    count ++;
-                }
-            } else {
-                PORTBbits.RB5 = 0;
-            }
-        } else {
-            if (current_1 < MAX) {
-                if (count > speed) {
-                    current_1 = current_1 + 1;
-                    PWM1DCH = current_1 >> 2;                  // PWM1
-                    PWM1DCL = current_1 << 6;
-                    PWM4DCH = current_1 >> 2;                  // PWM4
-                    PWM4DCL = current_1 << 6;
-                    PORTBbits.RB4 = 1;
-                    count = 0;
-                } else {
-                    count ++;
-                }
-            } else {
-                PORTBbits.RB4 = 0;
-                
-            }
-
+        if (count < speed) {
+            count ++;
+            continue;
         }
+        count = 0;
+        //Servo1(RC0)
+        if (RA0 == RA1) {
+            dir_1 = 0;
+        } else if (RA0) {
+            dir_1 = 1;
+        } else if (RA1) {
+            dir_1 = -1;
+        }
+        
+
+        //Servo2(RC4)
+        if (RA2 == RA3) {
+            dir_4 = 0;
+        } else if (RA2) {
+            dir_4 = 1;
+        } else if (RA3) {
+            dir_4 = -1;
+        }
+        
+
+        //Speed(RC4)
+        if (RA4 == RA5) {
+            speed = 200;
+        } else if (RA4) {
+            speed = 50;
+        } else if (RA5) {
+            speed = 10;
+        }
+        
+        //set servo1
+        current_1 += dir_1;
+        if (current_1 < MIN) {
+            current_1 = MIN;
+        }
+        if (current_1 > MAX  ) {
+            current_1 = MAX;
+        }
+        PWM1DCH = current_1 >> 2;                  // PWM1
+        PWM1DCL = current_1 << 6;
+
+        //set servo2
+        current_4 += dir_4;
+        if (current_4 < MIN) {
+            current_4 = MIN;
+        }
+        if (current_4 > MAX  ) {
+            current_4 = MAX;
+        }
+        PWM4DCH = current_4 >> 2;                  // PWM1
+        PWM4DCL = current_4 << 6;
+
     }
 }
 
-void Init_test(){
-    ANSELA = 0;
-    ANSELC = 0;
-    
-    WPUA = 0;
-    TRISA = 0;
-    TRISC = 0;
-    
-    TRISAbits.TRISA0 = 1;
-    TRISAbits.TRISA1 = 1;
-    //TRISAbits.TRISA2 = 1;
-    TRISAbits.TRISA3 = 1;
-    TRISAbits.TRISA4 = 1;
-    TRISAbits.TRISA5 = 1;
-    
-    OPTION_REG = 0b00000000 ; // デジタルI/Oに内部プルアップ抵抗を使用する
-    ANSELB = 0;
-    TRISB      = 0b01010000 ; // ピン(RB)はRB4(SCL1)/RB1(SDA1)のみ入力
-    WPUB       = 0b01010000 ; // RB1/4は内部プルアップ抵抗を指定する
-    PORTB      = 0b00000000 ; // RB出力ピンの初期化(全てLOWにする)
-
-    /* 入出力ポートの設定 */
-    ANSELA = 0b0;                  // すべてデジタルピン
-    TRISA = 0b0;                   // RD2のみ入力
-    TRISAbits.TRISA0 = 1;                   // RA0のみ入力
-    /**** メインループ ********/
-    while(1) {
-        if(RA0 == 1){               // S1がオフの場合
-            PORTAbits.RA1=1;           // D2,3,4点灯
-            PORTAbits.RA1=0;           // D2,3,4点灯
-        }
-    }
-
-}
 /*************************************
 * CLC初期設定関数
 *************************************/
@@ -227,14 +218,6 @@ void CLCInit(void){
 
 void interrupt isr(void){
     if(TMR0IF){                             // タイマ0割り込みか？
-        if (testflg) {
-            testflg = 0;
-            PORTBbits.RB6 = 0;
-        } else {
-            testflg = 1;
-            PORTBbits.RB6 = 1;
-            
-        }
         TMR0IF = 0;                         // フラグクリア
         TMR0 = 96;                          // 時間再設定
         Interval--;                         // インターバル更新
@@ -248,4 +231,6 @@ void interrupt isr(void){
             }
         }
     }
+//    I2Cinterrupt();
 }
+
