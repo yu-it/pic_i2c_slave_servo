@@ -8,7 +8,7 @@
 #include <stdlib.h>
 #include <xc.h>
 #include <pic16F1508.h>
-
+#include "I2C.h"
 /***** コンフィギュレーションの設定 *********/
 /*
 __CONFIG(FOSC_INTOSC & WDTE_OFF & PWRTE_ON & MCLRE_ON & CP_OFF
@@ -53,6 +53,13 @@ void Init() {
     /** 入出力ポートの設定 ***/
     ANSELA = 0x00;
     ANSELB = 0x00;                      // デジタル    
+    TRISC = 0;                       
+    ANSELCbits.ANSC6 = 0;
+    ANSELCbits.ANSC7 = 0;
+    TRISCbits.TRISC6 = 0;
+    TRISCbits.TRISC7 = 0;
+    ANSELCbits.ANSC7 = 0;
+    ANSELBbits.ANSB4 = 0;
     TRISA = 0;                       // RA0,1,3,4,5のみ入力設定
     TRISAbits.TRISA0 = 1;
     TRISAbits.TRISA1 = 1;
@@ -62,7 +69,6 @@ void Init() {
     TRISAbits.TRISA5 = 1;
     TRISB = 0;                       // すべて出力
     //TRISC = 0x2E;                       // RC1,2,3,5のみ入力
-    TRISC = 0;                       // RC1,2,3,5のみ入力
     /** プルアップイネーブル **/
     WPUA = 0b0;
     /* タイマ0の設定　20.04msec周期 */
@@ -95,7 +101,7 @@ void Init() {
     //TMR2IE = 1;                         // タイマ0割り込み許可
     PEIE = 1;                           // 周辺許可
     GIE = 1;                            // グローバル許可
-//    setUpI2CSlave();
+    setUpI2CSlave();
 }
 int main(int argc, char** argv) {
 
@@ -106,14 +112,45 @@ int main(int argc, char** argv) {
     current_4 = 0;
     int dir_1 = 0;
     int dir_4 = 0;
-    PORTBbits.RB5 = 1;
     current_1 = (MAX + MIN) / 2;
     current_4 = (MAX + MIN) / 2;
     PWM1DCH = current_1 >> 2;                  // PWM1
     PWM1DCL = current_1 << 6;
     PWM4DCH = current_4 >> 2;                  // PWM4
     PWM4DCL = current_4 << 6;
+    data_accepting_stat = -1;
+    LATBbits.LATB5 = 0;
+    LATCbits.LATC6 = 0;
+    LATCbits.LATC7 = 0;
     while (1) {
+        if (data_accepting_stat == 1) {
+            if (RXBuffer[0] == 0x10) {
+                LATCbits.LATC6 = 1;
+            }
+            if (RXBuffer[1] == 0x10) {
+                LATCbits.LATC7 = 1;
+            }
+            if (RXBuffer[0] == 0x11) {
+                LATCbits.LATC6 = 0;
+            }
+            if (RXBuffer[1] == 0x11) {
+                LATCbits.LATC7 = 0;
+            }
+            data_accepting_stat = -1;
+            //LATBbits.LATB5 = 0;
+            //LATCbits.LATC6 = 0;
+            //LATCbits.LATC7 = 1;
+        } else if (data_accepting_stat == 0) {
+            //LATBbits.LATB5 = 1;
+            //LATCbits.LATC6 = 0;
+            //LATCbits.LATC7 = 0;
+        } else if (data_accepting_stat == -1) {
+            //LATBbits.LATB5 = 0;
+            //LATCbits.LATC6 = 1;
+            //LATCbits.LATC7 = 0;
+        }
+        
+        
         if (count < speed) {
             count ++;
             continue;
@@ -231,6 +268,9 @@ void interrupt isr(void){
             }
         }
     }
-//    I2Cinterrupt();
+    I2Cinterrupt();
+    //PORTC6
+    //PORTC7
+    
 }
 
