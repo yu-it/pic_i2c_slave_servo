@@ -18,12 +18,12 @@ typedef struct {
 } mechanical_characteristic;
 extern /*volatile*/ mechanical_characteristic mech_char;
 typedef struct {
-    int servo1_dir;
-    int servo2_dir;
+    unsigned int servo1_dir;
+    unsigned int servo2_dir;
     unsigned int servo1_pow;
     unsigned int servo2_pow;
-    int mor1_dir;
-    int mor2_dir;
+    unsigned int mor1_dir;
+    unsigned int mor2_dir;
     unsigned int mor_pow;
 
 } mortion_delta;
@@ -31,22 +31,22 @@ extern /*volatile*/ mortion_delta mor_delta;
 typedef struct  {
     unsigned int servo1_angle;
     unsigned int servo2_angle;
-    int mor1_dir;
-    int mor2_dir;
+    unsigned int mor1_dir;
+    unsigned int mor2_dir;
     unsigned int mor_pow;
 } current_status;
 extern /*volatile*/ current_status cur_stat;
 
 #define as_signed_flg(V) (V == 0 ? 0 : V - 2)
 
-#define set_servo1min(V) mech_char.servo1_min = V;mech_char.servo1_mid = (mech_char.servo1_min + mech_char.servo1_max) / 2
+#define set_servo1min(V) mech_char.servo1_min = V;mech_char.servo1_mid = (mech_char.servo1_min + mech_char.servo1_max) / 2;if(cur_stat.servo1_angle < V) {cur_stat.servo1_angle = V;}
 #define set_servo1min_com 1
-#define set_servo1max(V) mech_char.servo1_max = V;mech_char.servo1_mid = (mech_char.servo1_min + mech_char.servo1_max) / 2
+#define set_servo1max(V) mech_char.servo1_max = V;mech_char.servo1_mid = (mech_char.servo1_min + mech_char.servo1_max) / 2;if(cur_stat.servo1_angle > V) {cur_stat.servo1_angle = V;}
 #define set_servo1max_com 2
 
-#define set_servo2min(V) mech_char.servo2_min = V;mech_char.servo2_mid = (mech_char.servo2_min + mech_char.servo2_max) / 2
+#define set_servo2min(V) mech_char.servo2_min = V;mech_char.servo2_mid = (mech_char.servo2_min + mech_char.servo2_max) / 2;if(cur_stat.servo2_angle < V) {cur_stat.servo2_angle = V;}
 #define set_servo2min_com 3
-#define set_servo2max(V) mech_char.servo2_max = V;mech_char.servo2_mid = (mech_char.servo2_min + mech_char.servo2_max) / 2
+#define set_servo2max(V) mech_char.servo2_max = V;mech_char.servo2_mid = (mech_char.servo2_min + mech_char.servo2_max) / 2;if(cur_stat.servo2_angle > V) {cur_stat.servo2_angle = V;}
 #define set_servo2max_com 4
 
 #define set_servo1dir(V) mor_delta.servo1_dir = V;
