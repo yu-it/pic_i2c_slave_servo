@@ -11,9 +11,9 @@
 #define STATE5      0b00101000 // 0x28
 
 
-volatile unsigned int RXBuffer[RXBUFFER_SIZE]; 
-volatile unsigned int RXBufferIndex = 0;
-volatile int data_accepting_stat = 0;
+/*volatile*/ unsigned int RXBuffer[RXBUFFER_SIZE]; 
+/*volatile*/ unsigned int RXBufferIndex = 0;
+/*volatile*/ int data_accepting_stat = 0;
 
 
 void    I2Cinterrupt();
@@ -21,7 +21,6 @@ void I2CWrite(unsigned char data);
 
 void    setUpI2CSlave()
 {
-    ANSELBbits.ANSB4 = 0;
     TRISBbits.TRISB4=1; //output
     TRISBbits.TRISB6=1; //output
 // start I2C(1) setup   ：I2C(1) is slave
@@ -82,6 +81,8 @@ void checkStatAndMngI2c()
                RXBufferIndex++;                    //increment index 
                if (RXBufferIndex>=RXBUFFER_SIZE) {
                     RXBufferIndex = 0; 
+                    
+                    i2c_handler(RXBuffer[0], RXBuffer[2] << 8 | RXBuffer[1]);
                     data_accepting_stat = 1;                //伊藤
                }
             }

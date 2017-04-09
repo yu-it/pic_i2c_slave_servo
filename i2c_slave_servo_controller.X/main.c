@@ -2,13 +2,30 @@
  * File:   main.c
  * Author: yuusuke.ito
  *
+ * 
+ * 
+ * 
+ * 1  --VDD         |  20 VSS
+ * 2  --RA5         |  19 RA0
+ * 3  --RA4         |  18 RA1
+ * 4  --RA3         |  17 RA2 pwm3
+ * 5  --RC5         |  16 RC0 srv2
+ * 6  --RC4 srv1    |  15 RC1
+ * 7  --RC3 mor1_1  |  14 RC2 sens1
+ * 8  --RC6 mor1_2  |  13 RB4 SDA
+ * 9  --RC7 mor2_1  |  12 RB5 sens2
+ * 10 --RB7 mor2_2  |  11 RB6 SCL
+ * 
+ * 17はモータのパワーコントローラ * 
+ * i2cset -y 1 [ADD] [mem_offset] [command] [value]
+ * i2cset -y 1 0x12 0x00 0x0a 0x11
  * Created on 2017/04/01, 11:25
  */
 #include <stdio.h>
 #include <stdlib.h>
 #include <xc.h>
 #include <pic16F1508.h>
-#include "I2C.h"
+#include "main.h"
 /***** コンフィギュレーションの設定 *********/
 /*
 __CONFIG(FOSC_INTOSC & WDTE_OFF & PWRTE_ON & MCLRE_ON & CP_OFF
@@ -42,8 +59,12 @@ const unsigned int MIN = 250;
 unsigned int current_1, current_4;
 
 
-void CLCInit();
-void Init();
+/*volatile*/ int arm_mode = 0;    
+/*volatile*/ mechanical_characteristic mech_char;
+/*volatile*/ mortion_delta mor_delta;
+/*volatile*/ current_status cur_stat;
+
+
 /*
  * 
  */
@@ -52,23 +73,15 @@ void Init() {
     OSCCON = 0x73;                      // 内蔵8MHz
     /** 入出力ポートの設定 ***/
     ANSELA = 0x00;
-    ANSELB = 0x00;                      // デジタル    
-    TRISC = 0;                       
-    ANSELCbits.ANSC6 = 0;
-    ANSELCbits.ANSC7 = 0;
-    TRISCbits.TRISC6 = 0;
-    TRISCbits.TRISC7 = 0;
-    ANSELCbits.ANSC7 = 0;
-    ANSELBbits.ANSB4 = 0;
-    TRISA = 0;                       // RA0,1,3,4,5のみ入力設定
-    TRISAbits.TRISA0 = 1;
-    TRISAbits.TRISA1 = 1;
-    TRISAbits.TRISA2 = 1;
-    TRISAbits.TRISA3 = 1;
-    TRISAbits.TRISA4 = 1;
-    TRISAbits.TRISA5 = 1;
-    TRISB = 0;                       // すべて出力
-    //TRISC = 0x2E;                       // RC1,2,3,5のみ入力
+    ANSELB = 0x00;                      
+    ANSELC = 0x00;                      
+    TRISA = 0;                       // すべて出力
+    TRISB = 0;                       // すべて一旦出力
+    TRISC = 0;                       // すべて出力
+    
+    TRISCbits.TRISC2 = 1;            //センサー1
+    TRISBbits.TRISB5 = 1;            //センサー2
+
     /** プルアップイネーブル **/
     WPUA = 0b0;
     /* タイマ0の設定　20.04msec周期 */
@@ -76,26 +89,17 @@ void Init() {
     TMR0 = 99;                          // 20msec         
     /* PWM1,4の初期設定 2.048msec周期*/
     /* Duty値設定範囲  450 to 1023 (0.9ms to 2.05ms width) */
-    HWidth = 750;                       // 初期値1.5msec
-    VWidth = 750;
+    
     PWM1CON = 0x80;                     // PWM1オン Output無効
-    PWM1DCH = HWidth >> 2;
-    PWM1DCL = HWidth << 6;
     PWM4CON = 0x80;                     // PWM4オン Output無効
-    PWM4DCH = VWidth >> 2;
-    PWM4DCL = VWidth << 6;
+    //PWM3CON = 0xC0;                     // PWM3オン OutputOn
+
     /* タイマ２の設定 */
     T2CON = 0x06;                       // 1/16  2MHz/16/256 = 2.048msec周期
     PR2 = 0xFF;                         // 10bit分解能
     /** CLCの初期設定  **/
     CLCInit();
      /* 変数リセット */
-    Interval = 5;                       // 0.1sec
-    AutoInt = 300;                      // 自動周期 30sec
-    DFlag = 1;                          // 表示フラグセット
-    Mode = 0;                           // 動作モード初期化 Manual
-    AutoFlag = 0;                       // 自動モードフラグ
-    printf("** Start App! **");         // 開始メッセージ表示
     /* 割り込み許可 */
     TMR0IE = 1;                         // タイマ0割り込み許可
     //TMR2IE = 1;                         // タイマ0割り込み許可
@@ -103,110 +107,45 @@ void Init() {
     GIE = 1;                            // グローバル許可
     setUpI2CSlave();
 }
+void init_struct() {
+    mech_char.servo1_max = 0;
+    mech_char.servo1_mid = 0;
+    mech_char.servo1_min = 0;
+    mech_char.servo2_max = 0;
+    mech_char.servo2_mid = 0;
+    mech_char.servo2_min = 0;
+    mor_delta.servo1_dir = 0;
+    mor_delta.servo2_dir = 0;
+    mor_delta.servo1_pow = 0;
+    mor_delta.servo2_pow = 0;
+    mor_delta.mor1_dir = 0;
+    mor_delta.mor2_dir = 0;
+    mor_delta.mor_pow = 0;
+    cur_stat.servo1_angle = 0;
+    cur_stat.servo2_angle = 0;
+    cur_stat.mor1_dir = 0;
+    cur_stat.mor2_dir = 0;
+    cur_stat.mor_pow = 0;
+    
+}
 int main(int argc, char** argv) {
 
     Init();
-    int count = 0;
-    int speed = 500;
-    current_1 = 0;
-    current_4 = 0;
-    int dir_1 = 0;
-    int dir_4 = 0;
-    current_1 = (MAX + MIN) / 2;
-    current_4 = (MAX + MIN) / 2;
-    PWM1DCH = current_1 >> 2;                  // PWM1
-    PWM1DCL = current_1 << 6;
-    PWM4DCH = current_4 >> 2;                  // PWM4
-    PWM4DCL = current_4 << 6;
-    data_accepting_stat = -1;
-    LATBbits.LATB5 = 0;
-    LATCbits.LATC6 = 0;
-    LATCbits.LATC7 = 0;
-    while (1) {
-        if (data_accepting_stat == 1) {
-            if (RXBuffer[0] == 0x10) {
-                LATCbits.LATC6 = 1;
-            }
-            if (RXBuffer[1] == 0x10) {
-                LATCbits.LATC7 = 1;
-            }
-            if (RXBuffer[0] == 0x11) {
-                LATCbits.LATC6 = 0;
-            }
-            if (RXBuffer[1] == 0x11) {
-                LATCbits.LATC7 = 0;
-            }
-            data_accepting_stat = -1;
-            //LATBbits.LATB5 = 0;
-            //LATCbits.LATC6 = 0;
-            //LATCbits.LATC7 = 1;
-        } else if (data_accepting_stat == 0) {
-            //LATBbits.LATB5 = 1;
-            //LATCbits.LATC6 = 0;
-            //LATCbits.LATC7 = 0;
-        } else if (data_accepting_stat == -1) {
-            //LATBbits.LATB5 = 0;
-            //LATCbits.LATC6 = 1;
-            //LATCbits.LATC7 = 0;
+    int mortor_pow_controller = 0;
+    while(1) {
+        
+        if (arm_mode) {
+            optimize_arm_angle();
+        }
+        apply_delta2status();
+        
+        apply_status2mech();
+        mortor_pow_controller ++;
+        if (cur_stat.mor_pow < mortor_pow_controller) {
+            mortor_pow_controller = 0;
+            LATCbits.LATC5 = (LATCbits.LATC5 ? 0 : 1);
         }
         
-        
-        if (count < speed) {
-            count ++;
-            continue;
-        }
-        count = 0;
-        //Servo1(RC0)
-        if (RA0 == RA1) {
-            dir_1 = 0;
-        } else if (RA0) {
-            dir_1 = 1;
-        } else if (RA1) {
-            dir_1 = -1;
-        }
-        
-
-        //Servo2(RC4)
-        if (RA2 == RA3) {
-            dir_4 = 0;
-        } else if (RA2) {
-            dir_4 = 1;
-        } else if (RA3) {
-            dir_4 = -1;
-        }
-        
-
-        //Speed(RC4)
-        if (RA4 == RA5) {
-            speed = 200;
-        } else if (RA4) {
-            speed = 50;
-        } else if (RA5) {
-            speed = 10;
-        }
-        
-        //set servo1
-        current_1 += dir_1;
-        if (current_1 < MIN) {
-            current_1 = MIN;
-        }
-        if (current_1 > MAX  ) {
-            current_1 = MAX;
-        }
-        PWM1DCH = current_1 >> 2;                  // PWM1
-        PWM1DCL = current_1 << 6;
-
-        //set servo2
-        current_4 += dir_4;
-        if (current_4 < MIN) {
-            current_4 = MIN;
-        }
-        if (current_4 > MAX  ) {
-            current_4 = MAX;
-        }
-        PWM4DCH = current_4 >> 2;                  // PWM1
-        PWM4DCL = current_4 << 6;
-
     }
 }
 
@@ -257,20 +196,142 @@ void interrupt isr(void){
     if(TMR0IF){                             // タイマ0割り込みか？
         TMR0IF = 0;                         // フラグクリア
         TMR0 = 96;                          // 時間再設定
-        Interval--;                         // インターバル更新
-        if(Interval == 0){                  // 設定時間の場合
-            Interval = 5;                   // 0.1secに再セット
-            DFlag = 1;                      // 表示フラグオン          
-            AutoInt--;                      // 10secタイマ更新
-            if(AutoInt == 0){               // 10secか？
-                AutoInt = 300;              // タイマ再設定30sec
-                AutoFlag = 1;               // 自動モード開始フラグオン
-            }
-        }
     }
     I2Cinterrupt();
     //PORTC6
     //PORTC7
     
 }
+
+void i2c_handler_impl(unsigned int com, unsigned int data) {
+
+         if (com == set_servo1min_com) {
+             set_servo1min(data);
+         } else if (com == set_servo1max_com) {
+             set_servo1max(data);
+         } else if (com == set_servo2min_com) {
+             set_servo2min(data);
+         } else if (com == set_servo2max_com) {
+             set_servo2max(data);
+         } else if (com == set_servo1dir_com) {
+             set_servo1dir(data);
+         } else if (com == set_servo2dir_com) {
+             set_servo2dir(data);
+         } else if (com == set_servo1pow_com) {
+             set_servo1pow(data);
+         } else if (com == set_servo2pow_com) {
+             set_servo2pow(data);
+         } else if (com == set_mor1dir_com) {
+             set_mor1dir(data);
+         } else if (com == set_mor2dir_com) {
+//             if (1 == data) {
+//                 LATAbits.LATA5 = 1;
+//             }
+             set_mor2dir(data);
+            mor_delta.mor2_dir = data;
+         } else if (com == set_mor_pow_com) {
+             set_mor_pow(data);
+         } else if (com == set_arm_mode_com) {
+             set_arm_mode(data);
+         }
+
+     /*
+     switch(com) {
+         case set_servo1min_com:
+             set_servo1min(data);
+             break;
+         case set_servo1max_com:
+             set_servo1max(data);
+             break;
+         case set_servo2min_com:
+             set_servo2min(data);
+             break;
+         case set_servo2max_com:
+             set_servo2max(data);
+             break;
+         case set_servo1dir_com:
+             set_servo1dir(data);
+             break;
+         case set_servo2dir_com:
+             set_servo2dir(data);
+             break;
+         case set_servo1pow_com:
+             set_servo1pow(data);
+             break;
+         case set_servo2pow_com:
+             set_servo2pow(data);
+             break;
+         case set_mor1dir_com:
+             set_mor1dir(data);
+             break;
+         case set_mor2dir_com:
+             set_mor2dir(data);
+             break;
+         case set_mor_pow_com:
+             set_mor_pow(data);
+             break;
+         case set_arm_mode_com:
+             set_arm_mode(data);
+             break;
+
+     }
+    */         
+ }
+void optimize_arm_angle(){};
+void apply_delta2status(){
+    //mor_delta
+    //cur_stat
+    int tmp_new_angle = 0;
+
+    //servo1
+    tmp_new_angle = cur_stat.servo1_angle + (mor_delta.servo1_dir * as_signed_flg(mor_delta.servo1_pow));
+    if ( mech_char.servo1_min < tmp_new_angle && tmp_new_angle < mech_char.servo1_max) {
+        cur_stat.servo1_angle = tmp_new_angle;
+    }
+
+    //servo2
+    tmp_new_angle = cur_stat.servo2_angle + (mor_delta.servo2_dir * as_signed_flg(mor_delta.servo2_pow));
+    if ( mech_char.servo2_min < tmp_new_angle && tmp_new_angle < mech_char.servo2_max) {
+        cur_stat.servo2_angle = tmp_new_angle;
+    }
+    cur_stat.mor1_dir = mor_delta.mor1_dir;
+    cur_stat.mor2_dir = mor_delta.mor2_dir;
+    cur_stat.mor_pow = mor_delta.mor_pow;
+    
+};
+void apply_status2mech(){
+    PWM1DCH = cur_stat.servo1_angle >> 2;
+    PWM1DCL = cur_stat.servo1_angle << 6;
+    PWM4DCH = cur_stat.servo2_angle >> 2;
+    PWM4DCL = cur_stat.servo2_angle << 6;
+    //PWM3DCH = cur_stat.mor_pow >> 2;      //やっぱメインループのパルスで制御
+    //PWM3DCL = cur_stat.mor_pow << 6;     //やっぱメインループのパルスで制御
+    
+    int delta = as_signed_flg(cur_stat.mor1_dir);
+    if (1 == delta) {
+        LATCbits.LATC3 = 1;
+        LATCbits.LATC6 = 0;
+    } else if (-1 == delta) {
+        LATCbits.LATC3 = 0;
+        LATCbits.LATC6 = 1;
+    } else if (0 == delta) {
+        LATCbits.LATC3 = 1;
+        LATCbits.LATC6 = 1;
+    }
+        
+    int delta = as_signed_flg(cur_stat.mor2_dir);
+    if (1 == delta) {
+        LATCbits.LATC7 = 1;
+        LATBbits.LATB7 = 0;
+    } else if (-1 == delta) {
+        LATCbits.LATC7 = 0;
+        LATBbits.LATB7 = 1;
+    } else if (0 == delta) {
+        LATCbits.LATC7 = 1;
+        LATBbits.LATB7 = 1;
+    }
+
+};
+
+
 
