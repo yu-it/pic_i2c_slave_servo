@@ -7,14 +7,14 @@
  * 
  * 1  --VDD         |  20 VSS
  * 2  --RA5         |  19 RA0
- * 3  --RA4         |  18 RA1
- * 4  --RA3         |  17 RA2 pwm3
+ * 3  --RA4 mor2_2  |  18 RA1
+ * 4  --RA3         |  17 RA2 srv3  
  * 5  --RC5 mor1_1  |  16 RC0 srv2
  * 6  --RC4 srv1    |  15 RC1 devug
  * 7  --RC3 pwm3    |  14 RC2 sens1
  * 8  --RC6 mor1_2  |  13 RB4 SDA
  * 9  --RC7 mor2_1  |  12 RB5 sens2
- * 10 --RB7 mor2_2  |  11 RB6 SCL
+ * 10 --RB7 PWM Con |  11 RB6 SCL
  * 
  * 17はモータのパワーコントローラ * 
  * i2cset -y 1 [ADD] [mem_offset] [command] [value] [ex-value]
@@ -92,7 +92,7 @@ void Init() {
     
     PWM1CON = 0x80;                     // PWM1オン Output無効
     PWM4CON = 0x80;                     // PWM4オン Output無効
-   PWM2CON = 0xC0;                     // PWM3オン OutputOn
+    PWM2CON = 0xC0;                     // PWM3オン OutputOn
 
     /* タイマ２の設定 */
     T2CON = 0x06;                       // 1/16  2MHz/16/256 = 2.048msec周期
@@ -179,7 +179,9 @@ void CLCInit(void){
     CLC3SEL0 = 0x47;
     CLC3SEL1 = 0x50;
     CLC3POL  = 0x00;
-    CLC3CON  = 0x84;
+    //CLC3CON  = 0x84;
+    CLC3CON  = 0xC4;
+    
     /* CLC4 初期設定 */
     CLC4GLS0 = 0x08;
     CLC4GLS1 = 0x80;                    // AND回路
@@ -360,13 +362,13 @@ void apply_status2mech(){
     }
         
     if (3 == cur_stat.mor2_dir) {
-        LATBbits.LATB7 = 1;
+        LATAbits.LATA4 = 1;
         LATCbits.LATC7 = 0;
     } else if (1 == cur_stat.mor2_dir) {
-        LATBbits.LATB7 = 0;
+        LATAbits.LATA4 = 0;
         LATCbits.LATC7 = 1;
     } else if (2 == cur_stat.mor2_dir) {
-        LATBbits.LATB7 = 1;
+        LATAbits.LATA4 = 1;
         LATCbits.LATC7 = 1;
     }
 
