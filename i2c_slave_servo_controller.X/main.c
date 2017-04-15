@@ -10,7 +10,7 @@
  * 3  --RA4         |  18 RA1
  * 4  --RA3         |  17 RA2 pwm3
  * 5  --RC5 mor1_1  |  16 RC0 srv2
- * 6  --RC4 srv1    |  15 RC1
+ * 6  --RC4 srv1    |  15 RC1 devug
  * 7  --RC3 pwm3    |  14 RC2 sens1
  * 8  --RC6 mor1_2  |  13 RB4 SDA
  * 9  --RC7 mor2_1  |  12 RB5 sens2
@@ -92,7 +92,7 @@ void Init() {
     
     PWM1CON = 0x80;                     // PWM1オン Output無効
     PWM4CON = 0x80;                     // PWM4オン Output無効
-    //PWM2CON = 0xC0;                     // PWM3オン OutputOn
+   PWM2CON = 0xC0;                     // PWM3オン OutputOn
 
     /* タイマ２の設定 */
     T2CON = 0x06;                       // 1/16  2MHz/16/256 = 2.048msec周期
@@ -106,6 +106,8 @@ void Init() {
     PEIE = 1;                           // 周辺許可
     GIE = 1;                            // グローバル許可
     setUpI2CSlave();
+    PWM2DCH = 0xffff >> 2;      //やっぱメインループのパルスで制御
+    PWM2DCL = 0xffff << 6;     //やっぱメインループのパルスで制御
 }
 void init_struct() {
     mech_char.servo1_max = 0;
@@ -121,8 +123,10 @@ void init_struct() {
     mor_delta.mor1_dir = 2;
     mor_delta.mor2_dir = 2;
     mor_delta.mor_pow = 500;
-    cur_stat.servo1_angle = 0;
-    cur_stat.servo2_angle = 0;
+    cur_stat.servo1_angle = 100;
+    cur_stat.servo2_angle = 100;
+    cur_stat.servo1_actual_angle = 100;
+    cur_stat.servo2_actual_angle = 100;
     cur_stat.mor1_dir = 2;
     cur_stat.mor2_dir = 2;
     cur_stat.mor_pow = 500;
@@ -283,41 +287,52 @@ void apply_delta2status(){
         tmp_counter_1 = 0;
         if ((mor_delta.servo1_dir - 2) == 0) {
             cur_stat.servo1_angle = 0;
-            
+            if (cur_stat.servo1_actual_angle < mech_char.servo1_min) {
+                cur_stat.servo1_actual_angle = mech_char.servo1_min;
+            } else if (cur_stat.servo1_actual_angle > mech_char.servo1_max) {
+                cur_stat.servo1_actual_angle = mech_char.servo1_max;
+            }            
         } else {
-            tmp_new_angle = cur_stat.servo1_angle + ((mor_delta.servo1_dir - 2));
+            tmp_new_angle = cur_stat.servo1_actual_angle + ((mor_delta.servo1_dir - 2));
             if ( mech_char.servo1_min > tmp_new_angle) {
-                cur_stat.servo1_angle = mech_char.servo1_min;
+                cur_stat.servo1_actual_angle = mech_char.servo1_min;
                 mor_delta.servo1_dir = 2;
             } else if (tmp_new_angle > mech_char.servo1_max) {
-                cur_stat.servo1_angle = mech_char.servo1_max;
+                cur_stat.servo1_actual_angle = mech_char.servo1_max;
                 mor_delta.servo1_dir = 2;
             } else {
-                cur_stat.servo1_angle = tmp_new_angle;
+                cur_stat.servo1_actual_angle = tmp_new_angle;
             }
+            cur_stat.servo1_angle = cur_stat.servo1_actual_angle;
         }
         //servo1
     }
 
     //servo2
-    if (tmp_counter_2 > mor_delta.servo1_pow) {
+    tmp_counter_2 ++;
+    if (tmp_counter_2 > mor_delta.servo2_pow) {
         tmp_counter_2 = 0;
         if ((mor_delta.servo2_dir - 2) == 0) {
             cur_stat.servo2_angle = 0;
+            if (cur_stat.servo2_actual_angle < mech_char.servo2_min) {
+                cur_stat.servo2_actual_angle = mech_char.servo2_min;
+            } else if (cur_stat.servo2_actual_angle > mech_char.servo2_max) {
+                cur_stat.servo2_actual_angle = mech_char.servo2_max;
+            }            
             
         } else {
-            tmp_new_angle = cur_stat.servo2_angle + ((mor_delta.servo2_dir - 2));
+            tmp_new_angle = cur_stat.servo2_actual_angle + ((mor_delta.servo2_dir - 2));
             if ( mech_char.servo2_min > tmp_new_angle) {
-                cur_stat.servo2_angle = mech_char.servo2_min;
+                cur_stat.servo2_actual_angle = mech_char.servo2_min;
                 mor_delta.servo2_dir = 2;
             } else if (tmp_new_angle > mech_char.servo2_max) {
-                cur_stat.servo2_angle = mech_char.servo2_max;
+                cur_stat.servo2_actual_angle = mech_char.servo2_max;
                 mor_delta.servo2_dir = 2;
             } else {
-                cur_stat.servo2_angle = tmp_new_angle;
+                cur_stat.servo2_actual_angle = tmp_new_angle;
             }
+            cur_stat.servo2_angle = cur_stat.servo2_actual_angle;
         }
-        //servo1
     }
     cur_stat.mor1_dir = mor_delta.mor1_dir;
     cur_stat.mor2_dir = mor_delta.mor2_dir;
@@ -329,9 +344,10 @@ void apply_status2mech(){
     PWM1DCL = cur_stat.servo1_angle << 6;
     PWM4DCH = cur_stat.servo2_angle >> 2;
     PWM4DCL = cur_stat.servo2_angle << 6;
-//    PWM2DCH = cur_stat.mor_pow >> 2;      //やっぱメインループのパルスで制御
-//    PWM2DCL = cur_stat.mor_pow << 6;     //やっぱメインループのパルスで制御
-    
+    PWM2DCH = cur_stat.mor_pow >> 2;      //やっぱメインループのパルスで制御
+    PWM2DCL = cur_stat.mor_pow << 6;     //やっぱメインループのパルスで制御
+
+
     if (3 == cur_stat.mor1_dir) {
         LATCbits.LATC5 = 1;
         LATCbits.LATC6 = 0;

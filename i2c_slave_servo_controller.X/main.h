@@ -31,6 +31,8 @@ extern /*volatile*/ mortion_delta mor_delta;
 typedef struct  {
     unsigned int servo1_angle;
     unsigned int servo2_angle;
+    unsigned int servo1_actual_angle;
+    unsigned int servo2_actual_angle;
     unsigned int mor1_dir;
     unsigned int mor2_dir;
     unsigned int mor_pow;
