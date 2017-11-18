@@ -10,8 +10,8 @@
  * 3  --RA4 mor2_2  |  18 RA1
  * 4  --RA3         |  17 RA2 srv3  
  * 5  --RC5 mor1_1  |  16 RC0 srv2
- * 6  --RC4 srv1    |  15 RC1 devug
- * 7  --RC3 pwm3    |  14 RC2 sens1
+ r* 6  --RC4 srv1    |  15 RC1 devug
+ * 7  --RC3 pwm2    |  14 RC2 sens1
  * 8  --RC6 mor1_2  |  13 RB4 SDA
  * 9  --RC7 mor2_1  |  12 RB5 sens2
  * 10 --RB7 PWM Con |  11 RB6 SCL
@@ -106,8 +106,8 @@ void Init() {
     PEIE = 1;                           // 周辺許可
     GIE = 1;                            // グローバル許可
     setUpI2CSlave();
-    PWM2DCH = 0xffff >> 2;      //やっぱメインループのパルスで制御
-    PWM2DCL = 0xffff << 6;     //やっぱメインループのパルスで制御
+    PWM2DCH = 0xffff >> 2;
+    PWM2DCL = 0xffff << 6;
 }
 void init_struct() {
     mech_char.servo1_max = 0;
@@ -123,10 +123,10 @@ void init_struct() {
     mor_delta.mor1_dir = 2;
     mor_delta.mor2_dir = 2;
     mor_delta.mor_pow = 500;
-    cur_stat.servo1_angle = 100;
-    cur_stat.servo2_angle = 100;
-    cur_stat.servo1_actual_angle = 100;
-    cur_stat.servo2_actual_angle = 100;
+    cur_stat.servo1_angle = 0;
+    cur_stat.servo2_angle = 0;
+    cur_stat.servo1_actual_angle = 0;
+    cur_stat.servo2_actual_angle = 0;
     cur_stat.mor1_dir = 2;
     cur_stat.mor2_dir = 2;
     cur_stat.mor_pow = 500;
@@ -288,7 +288,7 @@ void apply_delta2status(){
     if (tmp_counter_1 > mor_delta.servo1_pow) {
         tmp_counter_1 = 0;
         if ((mor_delta.servo1_dir - 2) == 0) {
-            cur_stat.servo1_angle = 0;
+            cur_stat.servo1_angle = 0;  //stop palse
             if (cur_stat.servo1_actual_angle < mech_char.servo1_min) {
                 cur_stat.servo1_actual_angle = mech_char.servo1_min;
             } else if (cur_stat.servo1_actual_angle > mech_char.servo1_max) {
@@ -315,7 +315,7 @@ void apply_delta2status(){
     if (tmp_counter_2 > mor_delta.servo2_pow) {
         tmp_counter_2 = 0;
         if ((mor_delta.servo2_dir - 2) == 0) {
-            cur_stat.servo2_angle = 0;
+            cur_stat.servo2_angle = 0; // stop palse
             if (cur_stat.servo2_actual_angle < mech_char.servo2_min) {
                 cur_stat.servo2_actual_angle = mech_char.servo2_min;
             } else if (cur_stat.servo2_actual_angle > mech_char.servo2_max) {
@@ -342,12 +342,13 @@ void apply_delta2status(){
     
 };
 void apply_status2mech(){
-    PWM1DCH = cur_stat.servo1_angle >> 2;
-    PWM1DCL = cur_stat.servo1_angle << 6;
     PWM4DCH = cur_stat.servo2_angle >> 2;
     PWM4DCL = cur_stat.servo2_angle << 6;
-    PWM2DCH = cur_stat.mor_pow >> 2;      //やっぱメインループのパルスで制御
-    PWM2DCL = cur_stat.mor_pow << 6;     //やっぱメインループのパルスで制御
+    PWM1DCH = cur_stat.servo1_angle >> 2;
+    PWM1DCL = cur_stat.servo1_angle << 6;
+    
+    PWM2DCH = cur_stat.mor_pow >> 2;
+    PWM2DCL = cur_stat.mor_pow << 6;
 
 
     if (3 == cur_stat.mor1_dir) {
