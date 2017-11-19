@@ -5,16 +5,16 @@
  * 
  * 
  * 
- * 1  --VDD         |  20 VSS
- * 2  --RA5         |  19 RA0
- * 3  --RA4 mor2_2  |  18 RA1
- * 4  --RA3         |  17 RA2 srv3  
- * 5  --RC5 mor1_1  |  16 RC0 srv2
- r* 6  --RC4 srv1    |  15 RC1 devug
- * 7  --RC3 pwm2    |  14 RC2 sens1
- * 8  --RC6 mor1_2  |  13 RB4 SDA
- * 9  --RC7 mor2_1  |  12 RB5 sens2
- * 10 --RB7 PWM Con |  11 RB6 SCL
+ * 1  --VDD          |  20 VSS
+ * 2  --RA5          |  19 RA0
+ * 3  --RA4 mor2_2   |  18 RA1
+ * 4  --RA3          |  17 RA2 
+ * 5  --RC5 mor1_2   |  16 RC0 srv2
+ * 6  --RC4 srv1     |  15 RC1 devug
+ * 7  --RC3 pwm2(pow)|  14 RC2 sens1
+ * 8  --RC6 mor1_1   |  13 RB4 SDA
+ * 9  --RC7 mor2_1   |  12 RB5 sens2
+ * 10 --RB7          |  11 RB6 SCL
  * 
  * 17はモータのパワーコントローラ * 
  * i2cset -y 1 [ADD] [mem_offset] [command] [value] [ex-value]
@@ -60,10 +60,146 @@ unsigned int current_1, current_4;
 
 
 /*volatile*/ int arm_mode = 0;    
-/*volatile*/ mechanical_characteristic mech_char;
-/*volatile*/ mortion_delta mor_delta;
-/*volatile*/ current_status cur_stat;
 
+typedef struct {
+    servo_descriptor* servo1;
+    servo_descriptor* servo2;
+    mortor_descriptor* mor1;
+    mortor_descriptor* mor2;
+    
+} mech_descriptor;
+
+servo_descriptor servo1_t;
+servo_descriptor servo2_t;
+mortor_descriptor mor1_t;
+mortor_descriptor mor2_t;
+mech_descriptor mech_desc_t;
+mech_descriptor* mech_desc = &mech_desc_t;
+
+/*
+ * set_register_flg2
+ * レジスタのフラグを設定する
+ * 第一引数にレジスタアドレス、第二引数に何番目のフラグに立てるか、第三引数に値をセット
+ * もともと1が立っているところにまた1をセットしたりするとどういうわけか出力が一瞬LOWになってしまう。値が異なるときのみフラグをセットするようにしている。
+ */
+void set_register_flg(volatile unsigned char * regaddr, int regoffset, unsigned int val) {
+    
+    BitIndicator* tar =  (BitIndicator * ) (regaddr);
+    if (0 == regoffset) {
+        if (tar->B0 != val)tar->B0 = val;   
+    } else if (1 == regoffset) {
+        if (tar->B1 != val)tar->B1 = val;
+    } else if (2 == regoffset) {
+        if (tar->B2 != val)tar->B2 = val;
+    }else if (3 == regoffset) {
+        if (tar->B3 != val)tar->B3 = val;
+    }else if (4 == regoffset) {
+        if (tar->B4 != val)tar->B4 = val;
+    }else if (5 == regoffset) {
+        if (tar->B5 != val)tar->B5 = val;
+    }else if (6 == regoffset) {
+        if (tar->B6 != val)tar->B6 = val;
+    }else if (7 == regoffset) {
+        if (tar->B7 != val)tar->B7 = val;
+    }
+}   
+
+void init_servo_struct(servo_descriptor* servo) {
+    *(servo->PWMH_register) = 0;
+    *(servo->PWML_register) = 0;
+    servo->current_freq = 0;
+    servo->actual_outputting_freq = 0;
+    servo->dir = 2;
+    servo->max_frequency = 0;
+    servo->min_frequency = 0;
+    servo->power = 0;
+    servo->power_control_work = 0;
+
+}
+void init_mortor_struct(mortor_descriptor* mortor) {
+    *(mortor->LAT_register_for_dir_control1) = 0;
+    mortor->LAT_register_for_dir_control1_offset = 0;
+    *(mortor->LAT_register_for_dir_control2) = 0;
+    mortor->LAT_register_for_dir_control2_offset = 0;
+    *(mortor->PWMH_register_for_power_control) = 0;
+    *(mortor->PWML_register_for_power_control) = 0;
+    mortor->dir = 2;
+    mortor->power = 0xff90;
+
+}
+void aply_servo_freq(servo_descriptor* servo) {
+    *(servo->PWMH_register) = (servo->actual_outputting_freq) >> 2;
+    *(servo->PWML_register) = (servo->actual_outputting_freq) << 6;
+}
+void aply_mor_power(mortor_descriptor* mor) {
+    *(mor->PWMH_register_for_power_control) = mor->power >> 2;
+    *(mor->PWML_register_for_power_control) = mor->power << 6;
+}
+void aply_mor_dir(mortor_descriptor* mor) {
+    if (3 == mor->dir) {
+        set_register_flg(mor->LAT_register_for_dir_control1, mor->LAT_register_for_dir_control1_offset, 1);
+        set_register_flg(mor->LAT_register_for_dir_control2, mor->LAT_register_for_dir_control2_offset, 0);
+    } else if (1 == mor->dir) {
+        set_register_flg(mor->LAT_register_for_dir_control1, mor->LAT_register_for_dir_control1_offset, 0);
+        set_register_flg(mor->LAT_register_for_dir_control2, mor->LAT_register_for_dir_control2_offset, 1);
+    } else if (2 == mor->dir) {
+        set_register_flg(mor->LAT_register_for_dir_control1, mor->LAT_register_for_dir_control1_offset, 1);
+        set_register_flg(mor->LAT_register_for_dir_control2, mor->LAT_register_for_dir_control2_offset, 1);
+    }
+    
+}
+void set_servo_min(servo_descriptor* servo, int min) {
+    if (servo->min_frequency != min)servo->min_frequency = min;
+    if(servo->current_freq < min) {
+        servo->current_freq = min;
+    }
+}
+void set_servo_max(servo_descriptor* servo, int max) {
+    if (servo->max_frequency != max)servo->max_frequency = max;
+    if(servo->current_freq > max) {
+        servo->current_freq = max;
+    }
+}
+void set_servo_dir(servo_descriptor* servo, int dir) {
+    if (servo->dir != dir)servo->dir = dir;
+}
+void set_servo_pow(servo_descriptor* servo, int pow) {
+    if (servo->power != pow)servo->power = pow;
+}
+void calc_desired_servo_status(servo_descriptor* servo) {
+    
+    //power変数を用いて周波数を変えるスピードをコントロールする。
+    servo->power_control_work ++ ;
+    if (servo->power_control_work < servo->power) {
+        return;
+    }
+    servo->power_control_work = 0;
+
+    //servo更新
+    if ((servo->dir - 2) == 0) {
+         //現在の出力周波数は保持しつつ、サーボを止めるために実際に出力する周波数が格納されているactual～のほうを0にする。
+        servo->actual_outputting_freq = 0; 
+    } else {
+        servo->current_freq += servo->dir - 2;
+
+        //行き過ぎている場合は補正する
+        if (servo->current_freq < servo->min_frequency) {
+            servo->current_freq = servo->min_frequency;
+        } else if (servo->current_freq > servo->max_frequency) {
+            servo->current_freq = servo->max_frequency;
+        }            
+
+        servo->actual_outputting_freq = servo->current_freq;
+    }
+        
+}
+
+void set_mor_dir(mortor_descriptor* mor, int dir) {
+    if (mor->dir != dir)mor->dir = dir;
+}
+void set_mor_power(mortor_descriptor* mor, int pow) {
+    if (mor->power != pow)mor->power = pow;
+}
 
 /*
  * 
@@ -76,7 +212,7 @@ void Init() {
     ANSELB = 0x00;                      
     ANSELC = 0x00;                      
     TRISA = 0;                       // すべて出力
-    TRISB = 0;                       // すべて一旦出力
+        TRISB = 0;                       // すべて一旦出力
     TRISC = 0;                       // すべて出力
     
     TRISCbits.TRISC2 = 1;            //センサー1
@@ -106,46 +242,42 @@ void Init() {
     PEIE = 1;                           // 周辺許可
     GIE = 1;                            // グローバル許可
     setUpI2CSlave();
-    PWM2DCH = 0xffff >> 2;
-    PWM2DCL = 0xffff << 6;
 }
 void init_struct() {
-    mech_char.servo1_max = 0;
-    mech_char.servo1_mid = 0;
-    mech_char.servo1_min = 0;
-    mech_char.servo2_max = 0;
-    mech_char.servo2_mid = 0;
-    mech_char.servo2_min = 0;
-    mor_delta.servo1_dir = 2;
-    mor_delta.servo2_dir = 2;
-    mor_delta.servo1_pow = 0;
-    mor_delta.servo2_pow = 0;
-    mor_delta.mor1_dir = 2;
-    mor_delta.mor2_dir = 2;
-    mor_delta.mor_pow = 500;
-    cur_stat.servo1_angle = 0;
-    cur_stat.servo2_angle = 0;
-    cur_stat.servo1_actual_angle = 0;
-    cur_stat.servo2_actual_angle = 0;
-    cur_stat.mor1_dir = 2;
-    cur_stat.mor2_dir = 2;
-    cur_stat.mor_pow = 500;
     
-}
-int main(int argc, char** argv) {
+    //構造体の初期化
+    mech_desc->servo1 = &servo1_t;
+    mech_desc->servo2 = &servo2_t;
+    mech_desc->mor1 = &mor1_t;
+    mech_desc->mor2 = &mor2_t;
+    
+    init_servo_struct(mech_desc->servo1);
+    init_servo_struct(mech_desc->servo2);
+    init_mortor_struct(mech_desc->mor1);
+    init_mortor_struct(mech_desc->mor2);
+   
+    //レジスタとの関連付け
+    mech_desc->servo1->PWML_register = &PWM1DCL;
+    mech_desc->servo1->PWMH_register = &PWM1DCH;
+    mech_desc->servo2->PWML_register = &PWM4DCL;
+    mech_desc->servo2->PWMH_register = &PWM4DCH;
+    mech_desc->mor1->PWML_register_for_power_control = &PWM2DCL;
+    mech_desc->mor1->PWMH_register_for_power_control = &PWM2DCH;
+    mech_desc->mor2->PWML_register_for_power_control = &PWM2DCL;
+    mech_desc->mor2->PWMH_register_for_power_control = &PWM2DCH;
 
-    Init();
-    init_struct();
-    while(1) {
-        
-        if (arm_mode) {
-            optimize_arm_angle();
-        }
-        apply_delta2status();
-        
-        apply_status2mech();
-        
-    }
+    mech_desc->mor1->LAT_register_for_dir_control1 = &LATC;
+    mech_desc->mor1->LAT_register_for_dir_control1_offset = 6;
+    mech_desc->mor1->LAT_register_for_dir_control2 = &LATC;
+    mech_desc->mor1->LAT_register_for_dir_control2_offset = 5;
+    
+    mech_desc->mor2->LAT_register_for_dir_control1 = &LATA;
+    mech_desc->mor2->LAT_register_for_dir_control1_offset = 4;
+    mech_desc->mor2->LAT_register_for_dir_control2 = &LATC;
+    mech_desc->mor2->LAT_register_for_dir_control2_offset = 7;
+    
+    aply_mor_power(mech_desc->mor1);
+    aply_mor_power(mech_desc->mor2);
 }
 
 /*************************************
@@ -178,9 +310,9 @@ void CLCInit(void){
     CLC3GLS3 = 0x00;                    // Timer2がクロック
     CLC3SEL0 = 0x47;
     CLC3SEL1 = 0x50;
-    CLC3POL  = 0x00;
-    //CLC3CON  = 0x84;
-    CLC3CON  = 0xC4;
+    CLC3POL  = 0x00;    
+    CLC3CON  = 0x84;
+    //CLC3CON  = 0xC4;
     
     /* CLC4 初期設定 */
     CLC4GLS0 = 0x08;
@@ -205,175 +337,67 @@ void interrupt isr(void){
 }
 
 void i2c_handler_impl(unsigned int com, unsigned int data) {
-
          if (com == set_servo1min_com) {
-             set_servo1min(data);
+             set_servo_min(mech_desc->servo1, data);
          } else if (com == set_servo1max_com) {
-             set_servo1max(data);
+             set_servo_max(mech_desc->servo1, data);
          } else if (com == set_servo2min_com) {
-             set_servo2min(data);
+             set_servo_min(mech_desc->servo2, data);
          } else if (com == set_servo2max_com) {
-             set_servo2max(data);
+             set_servo_max(mech_desc->servo2, data);
          } else if (com == set_servo1dir_com) {
-             set_servo1dir(data);
+             set_servo_dir(mech_desc->servo1, data);
          } else if (com == set_servo2dir_com) {
-             set_servo2dir(data);
+             set_servo_dir(mech_desc->servo2, data);
          } else if (com == set_servo1pow_com) {
-             set_servo1pow(data);
+             set_servo_pow(mech_desc->servo1, data);
          } else if (com == set_servo2pow_com) {
-             set_servo2pow(data);
+             set_servo_pow(mech_desc->servo2, data);
          } else if (com == set_mor1dir_com) {
-             set_mor1dir(data);
+             set_mor_dir(mech_desc->mor1,data);
          } else if (com == set_mor2dir_com) {
-//             if (1 == data) {
-//                 LATAbits.LATA5 = 1;
-//             }
-             set_mor2dir(data);
+             set_mor_dir(mech_desc->mor2,data);
          } else if (com == set_mor_pow_com) {
-             set_mor_pow(data);
+             set_mor_power(mech_desc->mor1,data);
+             set_mor_power(mech_desc->mor2,data);
          } else if (com == set_arm_mode_com) {
              set_arm_mode(data);
          }
 
-     /*
-     switch(com) {
-         case set_servo1min_com:
-             set_servo1min(data);
-             break;
-         case set_servo1max_com:
-             set_servo1max(data);
-             break;
-         case set_servo2min_com:
-             set_servo2min(data);
-             break;
-         case set_servo2max_com:
-             set_servo2max(data);
-             break;
-         case set_servo1dir_com:
-             set_servo1dir(data);
-             break;
-         case set_servo2dir_com:
-             set_servo2dir(data);
-             break;
-         case set_servo1pow_com:
-             set_servo1pow(data);
-             break;
-         case set_servo2pow_com:
-             set_servo2pow(data);
-             break;
-         case set_mor1dir_com:
-             set_mor1dir(data);
-             break;
-         case set_mor2dir_com:
-             set_mor2dir(data);
-             break;
-         case set_mor_pow_com:
-             set_mor_pow(data);
-             break;
-         case set_arm_mode_com:
-             set_arm_mode(data);
-             break;
-
-     }
-    */         
  }
-void optimize_arm_angle(){};
-int tmp_counter_1 = 0;
-int tmp_counter_2 = 0;
-void apply_delta2status(){
-    //mor_delta
-    //cur_stat
-    tmp_counter_1 ++;
-    int tmp_new_angle = 0;
-    if (tmp_counter_1 > mor_delta.servo1_pow) {
-        tmp_counter_1 = 0;
-        if ((mor_delta.servo1_dir - 2) == 0) {
-            cur_stat.servo1_angle = 0;  //stop palse
-            if (cur_stat.servo1_actual_angle < mech_char.servo1_min) {
-                cur_stat.servo1_actual_angle = mech_char.servo1_min;
-            } else if (cur_stat.servo1_actual_angle > mech_char.servo1_max) {
-                cur_stat.servo1_actual_angle = mech_char.servo1_max;
-            }            
-        } else {
-            tmp_new_angle = cur_stat.servo1_actual_angle + ((mor_delta.servo1_dir - 2));
-            if ( mech_char.servo1_min > tmp_new_angle) {
-                cur_stat.servo1_actual_angle = mech_char.servo1_min;
-                mor_delta.servo1_dir = 2;
-            } else if (tmp_new_angle > mech_char.servo1_max) {
-                cur_stat.servo1_actual_angle = mech_char.servo1_max;
-                mor_delta.servo1_dir = 2;
-            } else {
-                cur_stat.servo1_actual_angle = tmp_new_angle;
-            }
-            cur_stat.servo1_angle = cur_stat.servo1_actual_angle;
-        }
-        //servo1
-    }
 
-    //servo2
-    tmp_counter_2 ++;
-    if (tmp_counter_2 > mor_delta.servo2_pow) {
-        tmp_counter_2 = 0;
-        if ((mor_delta.servo2_dir - 2) == 0) {
-            cur_stat.servo2_angle = 0; // stop palse
-            if (cur_stat.servo2_actual_angle < mech_char.servo2_min) {
-                cur_stat.servo2_actual_angle = mech_char.servo2_min;
-            } else if (cur_stat.servo2_actual_angle > mech_char.servo2_max) {
-                cur_stat.servo2_actual_angle = mech_char.servo2_max;
-            }            
-            
-        } else {
-            tmp_new_angle = cur_stat.servo2_actual_angle + ((mor_delta.servo2_dir - 2));
-            if ( mech_char.servo2_min > tmp_new_angle) {
-                cur_stat.servo2_actual_angle = mech_char.servo2_min;
-                mor_delta.servo2_dir = 2;
-            } else if (tmp_new_angle > mech_char.servo2_max) {
-                cur_stat.servo2_actual_angle = mech_char.servo2_max;
-                mor_delta.servo2_dir = 2;
-            } else {
-                cur_stat.servo2_actual_angle = tmp_new_angle;
-            }
-            cur_stat.servo2_angle = cur_stat.servo2_actual_angle;
-        }
-    }
-    cur_stat.mor1_dir = mor_delta.mor1_dir;
-    cur_stat.mor2_dir = mor_delta.mor2_dir;
-    cur_stat.mor_pow = mor_delta.mor_pow;
-    
-};
-void apply_status2mech(){
-    PWM4DCH = cur_stat.servo2_angle >> 2;
-    PWM4DCL = cur_stat.servo2_angle << 6;
-    PWM1DCH = cur_stat.servo1_angle >> 2;
-    PWM1DCL = cur_stat.servo1_angle << 6;
-    
-    PWM2DCH = cur_stat.mor_pow >> 2;
-    PWM2DCL = cur_stat.mor_pow << 6;
+int main(int argc, char** argv) {
 
-
-    if (3 == cur_stat.mor1_dir) {
-        LATCbits.LATC5 = 1;
-        LATCbits.LATC6 = 0;
-    } else if (1 == cur_stat.mor1_dir) {
-        LATCbits.LATC5 = 0;
-        LATCbits.LATC6 = 1;
-    } else if (2 == cur_stat.mor1_dir) {
-        LATCbits.LATC5 = 1;
-        LATCbits.LATC6 = 1;
-    }
+    Init();
+    init_struct();
+    while(1) {
         
-    if (3 == cur_stat.mor2_dir) {
-        LATAbits.LATA4 = 1;
-        LATCbits.LATC7 = 0;
-    } else if (1 == cur_stat.mor2_dir) {
-        LATAbits.LATA4 = 0;
-        LATCbits.LATC7 = 1;
-    } else if (2 == cur_stat.mor2_dir) {
-        LATAbits.LATA4 = 1;
-        LATCbits.LATC7 = 1;
+        
+        if (arm_mode) {
+            //optimize_arm_angle();
+        }
+        calc_desired_status();
+        apply_desired_status();
     }
+}
+void optimize_arm_angle(){};
+
+void calc_desired_status(){
+    calc_desired_servo_status(mech_desc->servo1);
+    calc_desired_servo_status(mech_desc->servo2);
+    
+};
+
+void apply_desired_status(){
+    aply_servo_freq(mech_desc->servo1);
+    aply_servo_freq(mech_desc->servo2);
+    aply_mor_power(mech_desc->mor1);
+    aply_mor_power(mech_desc->mor2);
+    aply_mor_dir(mech_desc->mor1);
+    aply_mor_dir(mech_desc->mor2);
 
 };
+
 
 
 
