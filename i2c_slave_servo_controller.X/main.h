@@ -40,6 +40,8 @@ typedef struct {
     volatile unsigned char* PWML_register;
     volatile unsigned char* PWMH_register;
     unsigned int power_control_work;
+    unsigned int hold_mode;
+    unsigned int hold_freq;
     
 } servo_descriptor;
 
@@ -75,8 +77,9 @@ void set_register_flg2(unsigned char* regaddr, unsigned int regoffset, unsigned 
 #define set_arm_mode(V) arm_mode = V;
 #define set_arm_mode_com 12
 
-#define set_arm_mode(V) arm_mode = V;
-#define set_arm_mode_com 12
+#define set_servo1_position 13
+#define set_servo2_position 14
+
 extern /*volatile*/ int arm_mode;
 
 

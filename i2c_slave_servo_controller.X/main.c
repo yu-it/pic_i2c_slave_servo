@@ -114,6 +114,8 @@ void init_servo_struct(servo_descriptor* servo) {
     servo->min_frequency = 0;
     servo->power = 0;
     servo->power_control_work = 0;
+    servo->hold_mode = 0;
+    servo->hold_freq = 0;
 
 }
 void init_mortor_struct(mortor_descriptor* mortor) {
@@ -128,8 +130,14 @@ void init_mortor_struct(mortor_descriptor* mortor) {
 
 }
 void aply_servo_freq(servo_descriptor* servo) {
-    *(servo->PWMH_register) = (servo->actual_outputting_freq) >> 2;
-    *(servo->PWML_register) = (servo->actual_outputting_freq) << 6;
+    if (servo->hold_mode) {
+        *(servo->PWMH_register) = (servo->hold_freq) >> 2;
+        *(servo->PWML_register) = (servo->hold_freq) << 6;
+        
+    } else {
+        *(servo->PWMH_register) = (servo->actual_outputting_freq) >> 2;
+        *(servo->PWML_register) = (servo->actual_outputting_freq) << 6;
+    }
 }
 void aply_mor_power(mortor_descriptor* mor) {
     *(mor->PWMH_register_for_power_control) = mor->power >> 2;
@@ -149,25 +157,36 @@ void aply_mor_dir(mortor_descriptor* mor) {
     
 }
 void set_servo_min(servo_descriptor* servo, int min) {
+    servo->hold_mode = 0;
     if (servo->min_frequency != min)servo->min_frequency = min;
     if(servo->current_freq < min) {
         servo->current_freq = min;
     }
 }
 void set_servo_max(servo_descriptor* servo, int max) {
+    servo->hold_mode = 0;
     if (servo->max_frequency != max)servo->max_frequency = max;
     if(servo->current_freq > max) {
         servo->current_freq = max;
     }
 }
 void set_servo_dir(servo_descriptor* servo, int dir) {
+    servo->hold_mode = 0;
     if (servo->dir != dir)servo->dir = dir;
 }
 void set_servo_pow(servo_descriptor* servo, int pow) {
+    servo->hold_mode = 0;
     if (servo->power != pow)servo->power = pow;
+}
+void set_servo_position(servo_descriptor* servo, int position) {
+    servo->hold_mode = 1;
+    servo->hold_freq = position;
 }
 void calc_desired_servo_status(servo_descriptor* servo) {
     
+    //ホールドモードの場合は計算不要
+    if (servo->hold_mode) return;
+                
     //power変数を用いて周波数を変えるスピードをコントロールする。
     servo->power_control_work ++ ;
     if (servo->power_control_work < servo->power) {
@@ -257,10 +276,10 @@ void init_struct() {
     init_mortor_struct(mech_desc->mor2);
    
     //レジスタとの関連付け
-    mech_desc->servo1->PWML_register = &PWM1DCL;
-    mech_desc->servo1->PWMH_register = &PWM1DCH;
-    mech_desc->servo2->PWML_register = &PWM4DCL;
-    mech_desc->servo2->PWMH_register = &PWM4DCH;
+    mech_desc->servo1->PWML_register = &PWM4DCL;
+    mech_desc->servo1->PWMH_register = &PWM4DCH;
+    mech_desc->servo2->PWML_register = &PWM1DCL;
+    mech_desc->servo2->PWMH_register = &PWM1DCH;
     mech_desc->mor1->PWML_register_for_power_control = &PWM2DCL;
     mech_desc->mor1->PWMH_register_for_power_control = &PWM2DCH;
     mech_desc->mor2->PWML_register_for_power_control = &PWM2DCL;
@@ -362,6 +381,10 @@ void i2c_handler_impl(unsigned int com, unsigned int data) {
              set_mor_power(mech_desc->mor2,data);
          } else if (com == set_arm_mode_com) {
              set_arm_mode(data);
+         } else if (com == set_servo1_position) {
+             set_servo_position(mech_desc->servo1, data);
+         } else if (com == set_servo2_position) {
+             set_servo_position(mech_desc->servo2, data);
          }
 
  }
